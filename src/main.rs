@@ -1,6 +1,44 @@
+use std::collections::HashSet;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::process::Command;
+
+/// A point structure that can be hashed and compared with floating-point tolerance
+#[derive(Debug, Clone, Copy)]
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+impl PartialEq for Point {
+    fn eq(&self, other: &Self) -> bool {
+        const EPSILON: f64 = 1e-10;
+        (self.x - other.x).abs() < EPSILON && (self.y - other.y).abs() < EPSILON
+    }
+}
+
+impl Eq for Point {}
+
+impl Hash for Point {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Round to a specific precision before hashing
+        let precision = 1e10;
+        let x = (self.x * precision).round() / precision;
+        let y = (self.y * precision).round() / precision;
+
+        // Convert to bits for consistent hashing
+        x.to_bits().hash(state);
+        y.to_bits().hash(state);
+    }
+}
+
+/// Removes duplicate points from a vector of (f64, f64) coordinates using a HashSet
+fn remove_duplicates(points: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
+    let points_set: HashSet<Point> = points.into_iter().map(|(x, y)| Point { x, y }).collect();
+
+    points_set.into_iter().map(|p| (p.x, p.y)).collect()
+}
 
 fn save_points_to_file(points: Vec<(f64, f64)>, filename: &str) -> std::io::Result<()> {
     let mut file = File::create(filename)?;
@@ -13,7 +51,7 @@ fn save_points_to_file(points: Vec<(f64, f64)>, filename: &str) -> std::io::Resu
 fn run_python_script() -> Result<(), Box<dyn std::error::Error>> {
     println!("Running Python plotter script...");
 
-    let output = Command::new("python").arg("plotter.py").output()?;
+    let output = Command::new("python").arg("src/plotter.py").output()?;
 
     // Print stdout if any
     if !output.stdout.is_empty() {
@@ -38,6 +76,7 @@ struct Path<'a> {
     synth_commands: Vec<Vec<String>>,
     cartesian_commands: Vec<Vec<String>>,
     n: f64,
+    total_length: f64,
 }
 
 impl<'a> Path<'a> {
@@ -49,7 +88,8 @@ impl<'a> Path<'a> {
             stack: vec![],
             synth_commands: vec![],
             cartesian_commands: vec![],
-            n: 10.0,
+            n: 1000.0,
+            total_length: 0.0,
         }
     }
 
@@ -76,7 +116,7 @@ impl<'a> Path<'a> {
     }
 
     fn synthesize(&mut self) {
-        // iterate through every term and transform every command into Cubic Bezier Curve
+        // iterate through every term and transform every command into Cubic/Quadratic Bezier Curve
 
         let mut pointer = 0;
 
@@ -463,16 +503,21 @@ impl<'a> Path<'a> {
 
         self.cartesian_commands = self.transform_svg_coordinates_to_cartesian();
 
+        // calculate total length
+
+        self.total_length = self.calcluate_total_length();
+
         // get middle points
 
         self.points = self.calculate_all_points();
 
-        // iterate through evert command :
-        // - find the origin and target
-        // - calculate the length
-        // - compare the length to total length of whole SVG to see how many points to get (= nr_points)
-        // - devide the height and lenth by the nr_points to find the x and y step
-        // - array where you repeatedly add x_step and y_step to get list of points
+        // get rid of duplicates
+
+        let new_points_no_duplicates = remove_duplicates(self.points.clone());
+
+        // update points
+
+        self.points = new_points_no_duplicates;
     }
 
     fn transform_line_to_cbezier(&mut self, stack: Vec<f64>, end: Vec<String>) -> Vec<String> {
@@ -585,6 +630,31 @@ impl<'a> Path<'a> {
 
             match command[0].as_str() {
                 "C" => {
+                    // calculate n, (n_length)/(total_length)
+
+                    let n_length = cubic_bezier_arc_length(
+                        (
+                            command[1].parse::<f64>().expect("not f64"),
+                            command[2].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[3].parse::<f64>().expect("not f64"),
+                            command[4].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[5].parse::<f64>().expect("not f64"),
+                            command[6].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[7].parse::<f64>().expect("not f64"),
+                            command[8].parse::<f64>().expect("not f64"),
+                        ),
+                    );
+
+                    let n_coeff = (n_length / self.total_length.clone());
+
+                    let n = (self.n * n_coeff).round();
+
                     middle_n_points = self.get_cubic_bezier_points(
                         (
                             command[1].parse::<f64>().expect("not f64"),
@@ -602,10 +672,31 @@ impl<'a> Path<'a> {
                             command[7].parse::<f64>().expect("not f64"),
                             command[8].parse::<f64>().expect("not f64"),
                         ),
-                        100.0,
+                        n,
                     );
                 }
                 "Q" => {
+                    // calculate n, (n_length)/(total_length)
+
+                    let n_length = quadratic_bezier_arc_length(
+                        (
+                            command[1].parse::<f64>().expect("not f64"),
+                            command[2].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[3].parse::<f64>().expect("not f64"),
+                            command[4].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[5].parse::<f64>().expect("not f64"),
+                            command[6].parse::<f64>().expect("not f64"),
+                        ),
+                    );
+
+                    let n_coeff = (n_length / self.total_length.clone());
+
+                    let n = (self.n * n_coeff).round();
+
                     middle_n_points = self.get_quadratic_bezier_points(
                         (
                             command[1].parse::<f64>().expect("not f64"),
@@ -619,7 +710,7 @@ impl<'a> Path<'a> {
                             command[5].parse::<f64>().expect("not f64"),
                             command[6].parse::<f64>().expect("not f64"),
                         ),
-                        100.0,
+                        n,
                     );
                 }
                 _ => {}
@@ -634,6 +725,162 @@ impl<'a> Path<'a> {
 
         return points;
     }
+
+    fn calcluate_total_length(&mut self) -> f64 {
+        let mut length = 0.0;
+
+        for command in self.cartesian_commands.clone() {
+            match command[0].as_str() {
+                "C" => {
+                    let cubic_length = cubic_bezier_arc_length(
+                        (
+                            command[1].parse::<f64>().expect("not f64"),
+                            command[2].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[3].parse::<f64>().expect("not f64"),
+                            command[4].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[5].parse::<f64>().expect("not f64"),
+                            command[6].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[7].parse::<f64>().expect("not f64"),
+                            command[8].parse::<f64>().expect("not f64"),
+                        ),
+                    );
+
+                    length += cubic_length;
+                }
+                "Q" => {
+                    let quadratic_length = quadratic_bezier_arc_length(
+                        (
+                            command[1].parse::<f64>().expect("not f64"),
+                            command[2].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[3].parse::<f64>().expect("not f64"),
+                            command[4].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[5].parse::<f64>().expect("not f64"),
+                            command[6].parse::<f64>().expect("not f64"),
+                        ),
+                    );
+
+                    length += quadratic_length;
+                }
+                _ => {}
+            }
+        }
+
+        return length;
+    }
+}
+
+fn cubic_bezier_arc_length(p0: (f64, f64), p1: (f64, f64), p2: (f64, f64), p3: (f64, f64)) -> f64 {
+    // Gaussian quadrature points and weights for n=7
+    const GAUSS_POINTS: [(f64, f64); 7] = [
+        (-0.949107912342759, 0.129484966168870),
+        (-0.741531185599394, 0.279705391489277),
+        (-0.405845151377397, 0.381830050505119),
+        (0.000000000000000, 0.417959183673469),
+        (0.405845151377397, 0.381830050505119),
+        (0.741531185599394, 0.279705391489277),
+        (0.949107912342759, 0.129484966168870),
+    ];
+
+    // Helper function to calculate position at parameter t
+    fn bezier_derivative(
+        t: f64,
+        p0: (f64, f64),
+        p1: (f64, f64),
+        p2: (f64, f64),
+        p3: (f64, f64),
+    ) -> (f64, f64) {
+        let t2 = t * t;
+
+        // First calculate the coefficients for the derivative
+        let cx = 3.0 * (p1.0 - p0.0);
+        let bx = 3.0 * (p2.0 - p1.0) - cx;
+        let ax = p3.0 - p0.0 - cx - bx;
+
+        let cy = 3.0 * (p1.1 - p0.1);
+        let by = 3.0 * (p2.1 - p1.1) - cy;
+        let ay = p3.1 - p0.1 - cy - by;
+
+        // Calculate the derivative at parameter t
+        let dx = 3.0 * ax * t2 + 2.0 * bx * t + cx;
+        let dy = 3.0 * ay * t2 + 2.0 * by * t + cy;
+
+        (dx, dy)
+    }
+
+    // Integrate using Gaussian quadrature
+    let arc_length: f64 = GAUSS_POINTS
+        .iter()
+        .map(|(x, w)| {
+            // Transform integration bounds from [-1, 1] to [0, 1]
+            let t = (x + 1.0) / 2.0;
+
+            // Calculate derivative at point t
+            let (dx, dy) = bezier_derivative(t, p0, p1, p2, p3);
+
+            // Calculate speed at point t
+            let speed = (dx * dx + dy * dy).sqrt();
+
+            // Adjust weight for transformed bounds
+            speed * w * 0.5
+        })
+        .sum();
+
+    arc_length
+}
+
+fn quadratic_bezier_arc_length(p0: (f64, f64), p1: (f64, f64), p2: (f64, f64)) -> f64 {
+    // Gaussian quadrature points and weights for n=7
+    const GAUSS_POINTS: [(f64, f64); 7] = [
+        (-0.949107912342759, 0.129484966168870),
+        (-0.741531185599394, 0.279705391489277),
+        (-0.405845151377397, 0.381830050505119),
+        (0.000000000000000, 0.417959183673469),
+        (0.405845151377397, 0.381830050505119),
+        (0.741531185599394, 0.279705391489277),
+        (0.949107912342759, 0.129484966168870),
+    ];
+
+    // Helper function to calculate derivative at parameter t
+    fn bezier_derivative(t: f64, p0: (f64, f64), p1: (f64, f64), p2: (f64, f64)) -> (f64, f64) {
+        // For quadratic Bezier:
+        // B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+        let mt = 1.0 - t;
+
+        let dx = 2.0 * (mt * (p1.0 - p0.0) + t * (p2.0 - p1.0));
+        let dy = 2.0 * (mt * (p1.1 - p0.1) + t * (p2.1 - p1.1));
+
+        (dx, dy)
+    }
+
+    // Integrate using Gaussian quadrature
+    let arc_length: f64 = GAUSS_POINTS
+        .iter()
+        .map(|(x, w)| {
+            // Transform integration bounds from [-1, 1] to [0, 1]
+            let t = (x + 1.0) / 2.0;
+
+            // Calculate derivative at point t
+            let (dx, dy) = bezier_derivative(t, p0, p1, p2);
+
+            // Calculate speed at point t
+            let speed = (dx * dx + dy * dy).sqrt();
+
+            // Adjust weight for transformed bounds
+            speed * w * 0.5
+        })
+        .sum();
+
+    arc_length
 }
 
 fn main() {
@@ -643,6 +890,16 @@ fn main() {
     pth.get_points();
 
     let points = pth.points;
+
+    println!("{:?}", points.len());
+
+    let mut length = cubic_bezier_arc_length((0.0, 0.0), (0.0, 0.0), (1.0, 1.0), (1.0, 1.0));
+
+    println!("{:?}", length);
+
+    length = quadratic_bezier_arc_length((0.0, 0.0), (0.5, 0.5), (1.0, 1.0));
+
+    println!("{:?}", length);
 
     let _error = save_points_to_file(points, "points.csv");
 
