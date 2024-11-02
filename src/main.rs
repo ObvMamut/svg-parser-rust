@@ -1,35 +1,43 @@
-use plotly::Plot;
-use plotly::Scatter;
+use std::fs::File;
+use std::io::Write;
+use std::process::Command;
 
-// Scatter Plots
-fn scatter_plot(points: Vec<Vec<i32>>) {
-    let mut x_values = vec![];
-    let mut y_values = vec![];
+fn save_points_to_file(points: Vec<(f64, f64)>, filename: &str) -> std::io::Result<()> {
+    let mut file = File::create(filename)?;
+    for (x, y) in points {
+        writeln!(file, "{},{}", x, y)?;
+    }
+    Ok(())
+}
 
-    for coordinate in points {
-        x_values.push(coordinate[0]);
-        y_values.push(coordinate[1]);
+fn run_python_script() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Running Python plotter script...");
+
+    let output = Command::new("python").arg("plotter.py").output()?;
+
+    // Print stdout if any
+    if !output.stdout.is_empty() {
+        println!("Python output: {}", String::from_utf8_lossy(&output.stdout));
     }
 
-    // Create a scatter plot
-    let trace = Scatter::new(x_values, y_values).mode(plotly::common::Mode::Markers);
-
-    // Create the plot and add the trace
-    let mut plot = Plot::new();
-    plot.add_trace(trace);
-
-    // Display the plot
-    plot.show();
+    if output.status.success() {
+        println!("Python script completed successfully");
+        Ok(())
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr);
+        println!("Python error output: {}", error);
+        Err(error.to_string().into())
+    }
 }
 
 struct Path<'a> {
     path: &'a str,
     commands: Vec<String>,
-    points: Vec<Vec<i32>>,
-    stack: Vec<i32>,
+    points: Vec<(f64, f64)>,
+    stack: Vec<f64>,
     synth_commands: Vec<Vec<String>>,
     cartesian_commands: Vec<Vec<String>>,
-    n: i32,
+    n: f64,
 }
 
 impl<'a> Path<'a> {
@@ -41,7 +49,7 @@ impl<'a> Path<'a> {
             stack: vec![],
             synth_commands: vec![],
             cartesian_commands: vec![],
-            n: 10,
+            n: 10.0,
         }
     }
 
@@ -102,12 +110,12 @@ impl<'a> Path<'a> {
                     let synth_cmd: Vec<String> = vec![
                         "M".to_string(),
                         (self.commands.clone()[pointer + 1]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[0])
                             .to_string(),
                         (self.commands.clone()[pointer + 2]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[1])
                             .to_string(),
@@ -127,11 +135,11 @@ impl<'a> Path<'a> {
                         self.stack.clone(),
                         vec![
                             self.commands.clone()[pointer + 1]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr")
                                 .to_string(),
                             self.commands.clone()[pointer + 2]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr")
                                 .to_string(),
                         ],
@@ -152,12 +160,12 @@ impl<'a> Path<'a> {
                         self.stack.clone(),
                         vec![
                             (self.commands.clone()[pointer + 1]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr")
                                 + self.stack[0])
                                 .to_string(),
                             (self.commands.clone()[pointer + 2]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr")
                                 + self.stack[1])
                                 .to_string(),
@@ -181,7 +189,7 @@ impl<'a> Path<'a> {
                         self.stack.clone(),
                         vec![
                             (self.commands.clone()[pointer + 1]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr"))
                             .to_string(),
                             (self.stack[1]).to_string(), // stack[1] = y, when horizontal line y = const
@@ -205,7 +213,7 @@ impl<'a> Path<'a> {
                         self.stack.clone(),
                         vec![
                             (self.commands.clone()[pointer + 1]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr")
                                 + self.stack[0])
                                 .to_string(),
@@ -231,7 +239,7 @@ impl<'a> Path<'a> {
                         vec![
                             (self.stack[0]).to_string(), // stack[0] = x, when vertical line x = const
                             (self.commands.clone()[pointer + 1]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr"))
                             .to_string(),
                         ],
@@ -255,7 +263,7 @@ impl<'a> Path<'a> {
                         vec![
                             (self.stack[0]).to_string(), // stack[0] = x, when vertical line x = const
                             (self.commands.clone()[pointer + 1]
-                                .parse::<i32>()
+                                .parse::<f64>()
                                 .expect("not valid nr")
                                 + self.stack[1])
                                 .to_string(),
@@ -280,19 +288,19 @@ impl<'a> Path<'a> {
                         (self.stack[0].to_string()),
                         (self.stack[1].to_string()),
                         (self.commands.clone()[pointer + 1]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 2]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 3]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 4]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                     ];
@@ -315,22 +323,22 @@ impl<'a> Path<'a> {
                         (self.stack[0].to_string()),
                         (self.stack[1].to_string()),
                         (self.commands.clone()[pointer + 1]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[0])
                             .to_string(),
                         (self.commands.clone()[pointer + 2]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[1])
                             .to_string(),
                         (self.commands.clone()[pointer + 3]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[0])
                             .to_string(),
                         (self.commands.clone()[pointer + 4]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[1])
                             .to_string(),
@@ -354,27 +362,27 @@ impl<'a> Path<'a> {
                         self.stack[0].to_string(),
                         self.stack[1].to_string(),
                         (self.commands.clone()[pointer + 1]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 2]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 3]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 4]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 5]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                         (self.commands.clone()[pointer + 6]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr"))
                         .to_string(),
                     ];
@@ -397,32 +405,32 @@ impl<'a> Path<'a> {
                         self.stack[0].to_string(),
                         self.stack[1].to_string(),
                         (self.commands.clone()[pointer + 1]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[0])
                             .to_string(),
                         (self.commands.clone()[pointer + 2]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[1])
                             .to_string(),
                         (self.commands.clone()[pointer + 3]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[0])
                             .to_string(),
                         (self.commands.clone()[pointer + 4]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[1])
                             .to_string(),
                         (self.commands.clone()[pointer + 5]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[0])
                             .to_string(),
                         (self.commands.clone()[pointer + 6]
-                            .parse::<i32>()
+                            .parse::<f64>()
                             .expect("not valid nr")
                             + self.stack[1])
                             .to_string(),
@@ -455,42 +463,9 @@ impl<'a> Path<'a> {
 
         self.cartesian_commands = self.transform_svg_coordinates_to_cartesian();
 
-        let points = self.get_cubic_bezier_points(
-            (
-                self.cartesian_commands[2][1]
-                    .parse::<f64>()
-                    .expect("not f64"),
-                self.cartesian_commands[2][2]
-                    .parse::<f64>()
-                    .expect("not f64"),
-            ),
-            (
-                self.cartesian_commands[2][3]
-                    .parse::<f64>()
-                    .expect("not f64"),
-                self.cartesian_commands[2][4]
-                    .parse::<f64>()
-                    .expect("not f64"),
-            ),
-            (
-                self.cartesian_commands[2][5]
-                    .parse::<f64>()
-                    .expect("not f64"),
-                self.cartesian_commands[2][6]
-                    .parse::<f64>()
-                    .expect("not f64"),
-            ),
-            (
-                self.cartesian_commands[2][7]
-                    .parse::<f64>()
-                    .expect("not f64"),
-                self.cartesian_commands[2][8]
-                    .parse::<f64>()
-                    .expect("not f64"),
-            ),
-        );
+        // get middle points
 
-        println!("{:?}", points);
+        self.points = self.calculate_all_points();
 
         // iterate through evert command :
         // - find the origin and target
@@ -500,7 +475,7 @@ impl<'a> Path<'a> {
         // - array where you repeatedly add x_step and y_step to get list of points
     }
 
-    fn transform_line_to_cbezier(&mut self, stack: Vec<i32>, end: Vec<String>) -> Vec<String> {
+    fn transform_line_to_cbezier(&mut self, stack: Vec<f64>, end: Vec<String>) -> Vec<String> {
         // transform line into cubic bezier C[start, 1control point, 2control point, end]
 
         let mut cb_curve = vec!["C".to_string()];
@@ -538,11 +513,11 @@ impl<'a> Path<'a> {
                     _ => {
                         // case if x is divisible by 2 (so the value corresponding is y)
                         if x % 2 == 0 {
-                            let mut y_value = command[x].parse::<i32>().expect("not a valid int");
+                            let mut y_value = command[x].parse::<f64>().expect("not a valid int");
 
                             // transform to negative value
 
-                            y_value *= -1;
+                            y_value *= -1.0;
 
                             new_command.push(y_value.to_string());
                         } else {
@@ -564,10 +539,11 @@ impl<'a> Path<'a> {
         p1: (f64, f64),
         p2: (f64, f64),
         p3: (f64, f64),
+        n: f64,
     ) -> Vec<(f64, f64)> {
         let mut points = vec![];
 
-        for t in (0..=10).map(|i| i as f64 / 10.0) {
+        for t in (0..=n as usize).map(|i| i as f64 / n) {
             let x = (1.0 - t).powi(3) * p0.0
                 + 3.0 * (1.0 - t).powi(2) * t * p1.0
                 + 3.0 * (1.0 - t) * t.powi(2) * p2.0
@@ -579,17 +555,96 @@ impl<'a> Path<'a> {
             points.push((x, y));
         }
 
-        points
+        return points;
+    }
+
+    fn get_quadratic_bezier_points(
+        &mut self,
+        p0: (f64, f64),
+        p1: (f64, f64),
+        p2: (f64, f64),
+        n: f64,
+    ) -> Vec<(f64, f64)> {
+        let mut points = vec![];
+
+        for t in (0..=n as usize).map(|i| i as f64 / n) {
+            let x = (1.0 - t).powi(2) * p0.0 + 2.0 * (1.0 - t) * t * p1.0 + t.powi(2) * p2.0;
+            let y = (1.0 - t).powi(2) * p0.1 + 2.0 * (1.0 - t) * t * p1.1 + t.powi(2) * p2.1;
+            points.push((x, y));
+        }
+
+        return points;
+    }
+
+    fn calculate_all_points(&mut self) -> Vec<(f64, f64)> {
+        // iterate through every cartesian command and calculate every middle point
+        let mut points = vec![];
+
+        for command in self.cartesian_commands.clone() {
+            let mut middle_n_points = vec![];
+
+            match command[0].as_str() {
+                "C" => {
+                    middle_n_points = self.get_cubic_bezier_points(
+                        (
+                            command[1].parse::<f64>().expect("not f64"),
+                            command[2].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[3].parse::<f64>().expect("not f64"),
+                            command[4].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[5].parse::<f64>().expect("not f64"),
+                            command[6].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[7].parse::<f64>().expect("not f64"),
+                            command[8].parse::<f64>().expect("not f64"),
+                        ),
+                        100.0,
+                    );
+                }
+                "Q" => {
+                    middle_n_points = self.get_quadratic_bezier_points(
+                        (
+                            command[1].parse::<f64>().expect("not f64"),
+                            command[2].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[3].parse::<f64>().expect("not f64"),
+                            command[4].parse::<f64>().expect("not f64"),
+                        ),
+                        (
+                            command[5].parse::<f64>().expect("not f64"),
+                            command[6].parse::<f64>().expect("not f64"),
+                        ),
+                        100.0,
+                    );
+                }
+                _ => {}
+            }
+
+            // iterate through middle_n_points extract values add to points, return points
+
+            for coordinates in middle_n_points {
+                points.push(coordinates);
+            }
+        }
+
+        return points;
     }
 }
 
 fn main() {
-    let path = "M 20 50 L 100 50 l 50 -30 H 200 h 50 V 100 v 50 Q 300 200 350 150 q -30 -30 -50 -50 C 250 50 200 30 150 150 c 50 30 100 50 150 20";
+    let path = "M 20.5 50.0 L 100.0 50.0 l 50.0 -30.0 H 200.0 h 50.0 V 100.0 v 50.0 Q 300.0 200.0 350.0 150.0 q -30.0 -30.0 -50.0 -50.0 C 250.0 50.0 200.0 30.0 150.0 150.0 c 50.0 30.0 100.0 50.0 150.0 20.0";
     let mut pth = Path::init(path);
 
     pth.get_points();
 
-    println!("{:?}", pth.cartesian_commands);
+    let points = pth.points;
 
-    //scatter_plot(pth.points);
+    let _error = save_points_to_file(points, "points.csv");
+
+    let _error = run_python_script();
 }
